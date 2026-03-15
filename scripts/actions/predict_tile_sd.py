@@ -1,5 +1,6 @@
 from deep_snow.application import download_data, apply_model, apply_model_ensemble
 import argparse
+import json
 import time
 
 def parse_bounding_box(value):
@@ -36,11 +37,15 @@ def main():
     retry_delay = 5  # seconds
     for attempt in range(max_retries):
         try:
-            crs = download_data(aoi=args.aoi, target_date=args.target_date, buffer_period=buffer_period, snowoff_date=args.snow_off_date, out_dir=out_dir, cloud_cover=float(args.cloud_cover))
+            crs, scene_metadata = download_data(aoi=args.aoi, target_date=args.target_date, buffer_period=buffer_period, snowoff_date=args.snow_off_date, out_dir=out_dir, cloud_cover=float(args.cloud_cover))
             if args.use_ensemble == "True":
                 ds = apply_model_ensemble(out_dir=out_dir, out_name=out_name, crs=crs, write_tif=True, model_paths_list=model_paths_list, delete_inputs=True, out_crs='wgs84', gpu=False)
             else:
                 ds = apply_model(out_dir=out_dir, out_name=out_name, crs=crs, write_tif=True, model_path=model_3_path, delete_inputs=True, out_crs='wgs84', gpu=False)
+            # Write scene metadata so callers can see actual acquisition dates
+            scene_meta_path = f'{out_dir}/scene_metadata.json'
+            with open(scene_meta_path, 'w') as f:
+                json.dump(scene_metadata, f, indent=2)
             break  # Exit the loop if successful
         except ValueError as e:
             if str(e) == "Can't load empty sequence":

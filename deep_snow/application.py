@@ -165,9 +165,11 @@ def download_data(aoi, target_date, snowoff_date, buffer_period, out_dir, cloud_
                                  bbox=aoi_gpd.total_bounds,
                                  groupby='sat:absolute_orbit')
     print(f"Returned {len(snowon_s1_ds.time)} acquisitions")
-    
+
     # limit to morning acquisitions
     snowon_s1_ds = snowon_s1_ds.where(snowon_s1_ds.time.dt.hour > 11, drop=True)
+    # capture actual acquisition dates before median collapses them
+    s1_snowon_dates = [str(t.values)[:10] for t in snowon_s1_ds.time]
     # compute median
     snowon_s1_ds = snowon_s1_ds.median(dim='time').squeeze().compute()
     # rename variables
@@ -197,6 +199,8 @@ def download_data(aoi, target_date, snowoff_date, buffer_period, out_dir, cloud_
     
     # limit to morning acquisitions
     snowoff_s1_ds = snowoff_s1_ds.where(snowoff_s1_ds.time.dt.hour > 11, drop=True)
+    # capture actual acquisition dates before median collapses them
+    s1_snowoff_dates = [str(t.values)[:10] for t in snowoff_s1_ds.time]
     # compute median
     snowoff_s1_ds = snowoff_s1_ds.median(dim='time').squeeze().compute()
     snowoff_s1_ds = snowoff_s1_ds.rename({'vv': 'snowoff_vv', 'vh': 'snowoff_vh'})
@@ -223,6 +227,9 @@ def download_data(aoi, target_date, snowoff_date, buffer_period, out_dir, cloud_
                           like=snowon_s1_ds,
                           groupby='solar_day').where(lambda x: x > 0, other=np.nan)
     print(f"Returned {len(s2_ds.time)} acquisitions")
+
+    # capture actual acquisition dates before median collapses them
+    s2_dates = [str(t.values)[:10] for t in s2_ds.time]
 
     # remove clouds
     s2_ds = s2_ds.where(s2_ds['SCL'] != 9) # high probability cloud cover
@@ -361,7 +368,16 @@ def download_data(aoi, target_date, snowoff_date, buffer_period, out_dir, cloud_
     ds.to_netcdf(data_fn)
     print('finished preparing dataset!')
 
-    return crs
+    scene_metadata = {
+        "s1_snowon_dates": s1_snowon_dates,
+        "s1_snowoff_dates": s1_snowoff_dates,
+        "s2_dates": s2_dates,
+        "buffer_days": buffer_period,
+        "snowon_date_range": snowon_date_range,
+        "snowoff_date_range": snowoff_date_range,
+    }
+
+    return crs, scene_metadata
 
 def apply_model(crs, model_path, out_dir, out_name, write_tif, delete_inputs, out_crs, gpu=True):
     data_fn = f'{out_dir}/model_inputs.nc'
@@ -740,7 +756,7 @@ def calculate_uncertainty(ds, model_path):
 
 def predict_sd(aoi, target_date, snowoff_date, model_path, out_dir, out_crs='utm', out_name='deep-snow_sd.tif', write_tif=True, delete_inputs=False, cloud_cover=25):
     # download data
-    crs = download_data(aoi, target_date, snowoff_date, out_dir, cloud_cover)
+    crs, scene_metadata = download_data(aoi, target_date, snowoff_date, out_dir, cloud_cover)
     # apply model
     ds = apply_model(crs, model_path, out_dir, out_name, write_tif, delete_inputs, out_crs='utm')
 
